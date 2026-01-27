@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Madd Capp Puzzles</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>Madd Capp Puzzles</h1>
+      <div class="controls">
+        <label style="font-size:0.8rem;">
+          Puzzle:
+          <select id="puzzleSelect"></select>
+        </label>
+        <button id="shuffleBtn">🔀 Shuffle</button>
+        <button id="previewToggleBtn">🖼️ Preview</button>
+      </div>
+    </header>
+
+    <!-- HOW TO PLAY / STATS -->
+    <section class="card howto-card">
+      <h2>How to play</h2>
+      <p>
+        Drag pieces around the board. Pieces only snap when they’re next to
+        their true neighbors on the correct side. Once pieces connect, they
+        move together as a group.
+      </p>
+      <div class="stats" id="stats"></div>
+    </section>
+
+    <main>
+      <div class="play-area">
+        <!-- DESKTOP INLINE PREVIEW (toggled, stacked above board) -->
+        <div id="inlinePreview" class="preview-inline hidden">
+          <img id="previewImage" src="" alt="Puzzle preview" />
+        </div>
+
+        <!-- BOARD / PLAYSPACE -->
+        <div class="board-wrapper">
+          <div class="toast" id="toast"></div>
+          <div id="puzzleBoard">
+            <!-- JS injects <svg id="puzzleSvg"> here -->
+          </div>
+          <div class="win-banner" id="winBanner">
+            <div class="win-banner-inner">
+              🏆 Nice! All pieces are connected.<br />Try another shuffle or a new puzzle.
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- MOBILE PREVIEW MODAL -->
+  <div class="modal-backdrop" id="mobilePreviewModal">
+    <div class="modal-inner">
+      <img id="mobilePreviewImage" src="" alt="Puzzle preview mobile" />
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
