@@ -4,57 +4,115 @@
   <meta charset="UTF-8" />
   <title>Madd Capp Puzzles</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Nunito:wght@500;600;700&display=swap"
+    rel="stylesheet"
+  />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <div class="app">
-    <header>
-      <h1>Madd Capp Puzzles</h1>
-      <div class="controls">
-        <label style="font-size:0.8rem;">
-          Puzzle:
+  <div class="app-shell">
+    <header class="top-header">
+      <div class="brand-wrap">
+        <div class="logo-placeholder" aria-hidden="true">MC</div>
+        <div class="brand-copy">
+          <h1>Madd Capp Puzzles</h1>
+          <p>Take a walk on the wild side with Madd Capp.</p>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <label class="select-wrap">
+          <span>Puzzle</span>
           <select id="puzzleSelect"></select>
         </label>
-        <button id="shuffleBtn">🔀 Shuffle</button>
-        <button id="previewToggleBtn">🖼️ Preview</button>
+        <button id="shareBtn" class="btn btn-secondary" type="button">Share</button>
+        <button id="soundToggleBtn" class="btn btn-secondary" type="button" aria-pressed="false">Sound Effects On</button>
+        <button id="musicToggleBtn" class="btn btn-secondary" type="button" aria-pressed="false">Music On</button>
+        <label class="volume-wrap" for="volumeSlider">
+          <span>Volume</span>
+          <input id="volumeSlider" type="range" min="0" max="100" step="1" value="68" />
+        </label>
       </div>
     </header>
 
-    <!-- HOW TO PLAY / STATS -->
-    <section class="card howto-card">
-      <h2>How to play</h2>
-      <p>
-        Drag pieces around the board. Pieces only snap when they’re next to
-        their true neighbors on the correct side. Once pieces connect, they
-        move together as a group.
-      </p>
-      <div class="stats" id="stats"></div>
-    </section>
-
-    <main>
-      <div class="play-area">
-        <!-- DESKTOP INLINE PREVIEW (toggled, stacked above board) -->
-        <div id="inlinePreview" class="preview-inline hidden">
-          <img id="previewImage" src="" alt="Puzzle preview" />
-        </div>
-
-        <!-- BOARD / PLAYSPACE -->
-        <div class="board-wrapper">
-          <div class="toast" id="toast"></div>
-          <div id="puzzleBoard">
-            <!-- JS injects <svg id="puzzleSvg"> here -->
+    <main class="layout-grid">
+      <aside class="sidebar left-sidebar">
+        <section class="panel">
+          <h2>Session Stats</h2>
+          <div class="stat-list">
+            <div class="stat-row">
+              <span>Timer</span>
+              <strong id="timerValue">00:00</strong>
+            </div>
+            <div class="stat-row">
+              <span>Best Time</span>
+              <strong id="bestTimeValue">--:--</strong>
+            </div>
+            <div class="stat-row">
+              <span>Groups</span>
+              <strong id="groupsValue">0</strong>
+            </div>
+            <div class="stat-row">
+              <span>Pieces</span>
+              <strong id="piecesValue">0</strong>
+            </div>
+            <div class="stat-row">
+              <span>Largest Group</span>
+              <strong id="largestGroupValue">0</strong>
+            </div>
           </div>
+          <div class="stats hidden" id="stats"></div>
+        </section>
+
+        <section class="panel">
+          <h2>How to Play</h2>
+          <p>
+            Drag pieces around the board. Pieces snap only when true neighbors line up on the correct side.
+            Connected pieces move together as a single group.
+          </p>
+        </section>
+
+        <section class="panel daily-panel">
+          <h2>Daily Animal Challenge</h2>
+          <p>A fresh wildlife puzzle challenge appears here soon.</p>
+          <button id="dailyChallengeBtn" class="btn btn-secondary" type="button">Coming Soon</button>
+        </section>
+      </aside>
+
+      <section class="play-column">
+        <div class="board-wrapper" id="boardWrapper">
+          <div class="toast" id="toast"></div>
+          <div id="puzzleBoard"></div>
+          <div class="confetti-layer" id="confettiLayer" aria-hidden="true"></div>
           <div class="win-banner" id="winBanner">
             <div class="win-banner-inner">
-              🏆 Nice! All pieces are connected.<br />Try another shuffle or a new puzzle.
+              Wild and complete! You assembled the whole puzzle.
             </div>
           </div>
         </div>
-      </div>
+      </section>
+
+      <aside class="sidebar right-sidebar">
+        <section class="panel">
+          <h2>Reference Preview</h2>
+          <div id="inlinePreview" class="preview-inline">
+            <img id="previewImage" src="" alt="Puzzle preview" />
+          </div>
+          <button id="previewToggleBtn" class="btn btn-secondary" type="button">Hide Preview</button>
+        </section>
+
+        <section class="panel action-panel">
+          <h2>Puzzle Controls</h2>
+          <button id="shuffleBtn" class="btn btn-primary" type="button">Shuffle Pieces</button>
+          <div class="difficulty-badge" id="difficultyBadge">Bear - 5x6 - 28 Pieces</div>
+        </section>
+      </aside>
     </main>
   </div>
 
-  <!-- MOBILE PREVIEW MODAL -->
   <div class="modal-backdrop" id="mobilePreviewModal">
     <div class="modal-inner">
       <img id="mobilePreviewImage" src="" alt="Puzzle preview mobile" />
