@@ -36,6 +36,7 @@ const state = {
 
 const SNAP_TOLERANCE_FACTOR = 0.18; // fraction of piece width
 const BOARD_MARGIN_FACTOR = 0.2;    // 20% extra board space
+const CENTER_BOUNDS_PADDING_UNITS = 1;
 
 // --- Helpers -----------------------------------------------------------
 
@@ -76,6 +77,58 @@ function getWorldCenter(piece) {
     x: piece.baseX + group.dx,
     y: piece.baseY + group.dy
   };
+}
+
+function clientToSvgUnits(clientX, clientY) {
+  const svg = state.svg;
+  if (!svg) return null;
+  const ctm = svg.getScreenCTM();
+  if (!ctm) return null;
+  return new DOMPoint(clientX, clientY).matrixTransform(ctm.inverse());
+}
+
+function getPieceClipPathCenter(pieceEl) {
+  const clipRef = pieceEl.getAttribute("clip-path");
+  if (!clipRef) return null;
+
+  const match = clipRef.match(/^url\(#([^)]+)\)$/);
+  if (!match) return null;
+
+  const clipPathId = match[1];
+  const clipPath = state.svg?.querySelector(`#${clipPathId}`);
+  if (!clipPath) return null;
+
+  const path = clipPath.querySelector("path");
+  if (!path) return null;
+
+  const bbox = path.getBBox();
+  return {
+    x: bbox.x + bbox.width / 2,
+    y: bbox.y + bbox.height / 2
+  };
+}
+
+function groupFitsWithinBoard(groupId) {
+  const group = state.groups[groupId];
+  if (!group) return false;
+
+  for (const pid of group.pieceIds) {
+    const piece = state.pieces[pid];
+    if (!piece) continue;
+
+    const centerX = piece.baseX + group.dx;
+    const centerY = piece.baseY + group.dy;
+    if (
+      centerX < state.boardMinX + CENTER_BOUNDS_PADDING_UNITS ||
+      centerX > state.boardMaxX - CENTER_BOUNDS_PADDING_UNITS ||
+      centerY < state.boardMinY + CENTER_BOUNDS_PADDING_UNITS ||
+      centerY > state.boardMaxY - CENTER_BOUNDS_PADDING_UNITS
+    ) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function getActivePieceCount() {
@@ -229,8 +282,9 @@ function initializePiecesFromSvg() {
 
   const info = pieces.map((g) => {
     const bbox = g.getBBox();
-    const cx = bbox.x + bbox.width / 2;
-    const cy = bbox.y + bbox.height / 2;
+    const clipCenter = getPieceClipPathCenter(g);
+    const cx = clipCenter ? clipCenter.x : bbox.x + bbox.width / 2;
+    const cy = clipCenter ? clipCenter.y : bbox.y + bbox.height / 2;
     return { g, bbox, cx, cy };
   });
 
@@ -276,6 +330,7 @@ function initializePiecesFromSvg() {
   });
 
   shufflePieces(false); // initial scatter
+  enforcePieceRenderOrder();
   recomputeStats();
   resetWinState();
 }
@@ -295,6 +350,56 @@ function updateGroupTransforms(groupId) {
 function updateAllGroupTransforms() {
   for (const gid of Object.keys(state.groups)) {
     updateGroupTransforms(gid);
+  }
+}
+
+function enforcePieceRenderOrder() {
+  const parent = state.piecesLayer;
+  if (!parent) return;
+
+  const combined = [];
+  const singles = [];
+
+  for (const piece of Object.values(state.pieces)) {
+    const group = state.groups[piece.groupId];
+    if (!group) continue;
+    if (group.pieceIds.size > 1) {
+      combined.push(piece.el);
+    } else {
+      singles.push(piece.el);
+    }
+  }
+
+  // Combined groups render first; single pieces always render above them.
+  for (const el of combined) parent.appendChild(el);
+  for (const el of singles) parent.appendChild(el);
+}
+
+function bringGroupToFrontInBand(groupId) {
+  const parent = state.piecesLayer;
+  const group = state.groups[groupId];
+  if (!parent || !group) return;
+
+  const groupEls = Array.from(group.pieceIds)
+    .map((pid) => state.pieces[pid]?.el)
+    .filter(Boolean);
+
+  if (group.pieceIds.size === 1) {
+    for (const el of groupEls) parent.appendChild(el);
+    return;
+  }
+
+  const piecesInDomOrder = Array.from(parent.querySelectorAll(".piece"));
+  const firstSingle = piecesInDomOrder.find((el) => {
+    const pid = Number(el.dataset.pieceId);
+    const piece = state.pieces[pid];
+    if (!piece) return false;
+    const pieceGroup = state.groups[piece.groupId];
+    return !!pieceGroup && pieceGroup.pieceIds.size === 1;
+  });
+
+  for (const el of groupEls) {
+    parent.insertBefore(el, firstSingle || null);
   }
 }
 
@@ -318,6 +423,7 @@ function resetGroupsToSingles() {
     };
   }
   state.groups = newGroups;
+  enforcePieceRenderOrder();
 }
 
 // --- Scatter / shuffle -------------------------------------------------
@@ -403,6 +509,7 @@ function mergeGroups(anchorId, movingId) {
   delete state.groups[movingId];
 
   updateGroupTransforms(anchorId);
+  enforcePieceRenderOrder();
   recomputeStats();
   return anchorId;
 }
@@ -475,25 +582,18 @@ function setupDrag(piece) {
 
     const group = state.groups[piece.groupId];
     if (!group) return;
-
-    const svgRect = state.svg.getBoundingClientRect();
-    const unitsPerPxX = state.boardWidth / svgRect.width;
-    const unitsPerPxY = state.boardHeight / svgRect.height;
+    const pointerSvg = clientToSvgUnits(ev.clientX, ev.clientY);
+    if (!pointerSvg) return;
 
     state.activeDrag = {
       groupId: group.id,
-      startClientX: ev.clientX,
-      startClientY: ev.clientY,
-      startDx: group.dx,
-      startDy: group.dy,
-      unitsPerPxX,
-      unitsPerPxY
+      lastGoodDx: group.dx,
+      lastGoodDy: group.dy,
+      pointerOffsetX: pointerSvg.x - group.dx,
+      pointerOffsetY: pointerSvg.y - group.dy
     };
 
-    const parent = state.piecesLayer;
-    for (const pid of group.pieceIds) {
-      parent.appendChild(state.pieces[pid].el);
-    }
+    bringGroupToFrontInBand(group.id);
 
     window.addEventListener("pointermove", pointerMove);
     window.addEventListener("pointerup", pointerUp);
@@ -504,14 +604,16 @@ function setupDrag(piece) {
     const drag = state.activeDrag;
     if (!drag) return;
 
-    const dxPx = ev.clientX - drag.startClientX;
-    const dyPx = ev.clientY - drag.startClientY;
-
     const group = state.groups[drag.groupId];
     if (!group) return;
+    const pointerSvg = clientToSvgUnits(ev.clientX, ev.clientY);
+    if (!pointerSvg) return;
 
-    group.dx = drag.startDx + dxPx * drag.unitsPerPxX;
-    group.dy = drag.startDy + dyPx * drag.unitsPerPxY;
+    const nextDx = pointerSvg.x - drag.pointerOffsetX;
+    const nextDy = pointerSvg.y - drag.pointerOffsetY;
+
+    group.dx = nextDx;
+    group.dy = nextDy;
 
     updateGroupTransforms(group.id);
   }
@@ -519,6 +621,12 @@ function setupDrag(piece) {
   function pointerUp() {
     const drag = state.activeDrag;
     if (drag) {
+      const group = state.groups[drag.groupId];
+      if (group && !groupFitsWithinBoard(group.id)) {
+        group.dx = drag.lastGoodDx;
+        group.dy = drag.lastGoodDy;
+        updateGroupTransforms(group.id);
+      }
       trySnapGroup(drag.groupId);
     }
     state.activeDrag = null;
