@@ -1,10 +1,13 @@
 :root {
-  --bg: #050910;
-  --card: #101520;
-  --accent: #ffc857;
-  --accent-soft: rgba(255, 200, 87, 0.25);
-  --text: #f5f7ff;
-  --muted: #9ca3af;
+  --bg: #ffffff;
+  --card: #ffffff;
+  --accent: #dd2f26;
+  --accent-soft: rgba(221, 47, 38, 0.16);
+  --text: #111827;
+  --muted: #6b7280;
+  --surface: #f8fafc;
+  --surface-2: #eef2f7;
+  --border: #e5e7eb;
 }
 
 * {
@@ -21,7 +24,7 @@ body {
   margin: 0;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
-  background: radial-gradient(circle at top, #1f2933, #050910);
+  background: radial-gradient(circle at top, #fff5f4, var(--bg));
   color: var(--text);
   display: flex;
   justify-content: center;
@@ -64,9 +67,9 @@ header h1 {
 
 select,
 button {
-  background: #111827;
+  background: #ffffff;
   border-radius: 999px;
-  border: 1px solid #374151;
+  border: 1px solid var(--border);
   padding: 0.35rem 0.75rem;
   font-size: 0.85rem;
   color: var(--text);
@@ -77,10 +80,14 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 0.2rem;
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
 }
 
 button:hover {
-  border-color: var(--accent);
+  background: #c62820;
+  border-color: #c62820;
 }
 
 /* HOW TO PLAY CARD */
@@ -88,9 +95,9 @@ button:hover {
 .card {
   background: var(--card);
   border-radius: 0.9rem;
-  border: 1px solid #111827;
+  border: 1px solid var(--border);
   padding: 0.75rem;
-  box-shadow: 0 10px 35px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 10px 35px rgba(17, 24, 39, 0.08);
 }
 
 .howto-card {
@@ -132,10 +139,10 @@ button:hover {
 
 main {
   flex: 1;
-  background: var(--card);
+  background: var(--surface);
   border-radius: 1rem;
-  border: 1px solid #111827;
-  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--border);
+  box-shadow: 0 18px 60px rgba(17, 24, 39, 0.1);
   padding: 0.75rem;
   display: flex;
 }
@@ -159,8 +166,8 @@ main {
   max-width: 100%;
   width: min(500px, 100%);
   border-radius: 0.75rem;
-  border: 1px solid #1f2937;
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.7);
+  border: 1px solid var(--border);
+  box-shadow: 0 18px 40px rgba(17, 24, 39, 0.14);
 }
 
 .hidden {
@@ -186,9 +193,9 @@ main {
   height: 100%;
   max-width: 900px;
   border-radius: 0.75rem;
-  border: 2px solid #111827;
-  box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.8);
-  background: radial-gradient(circle at top, #111827, #020617);
+  border: 3px solid #e7a7a3;
+  box-shadow: inset 0 0 20px rgba(17, 24, 39, 0.08);
+  background: radial-gradient(circle at top, #ffffff, var(--surface-2));
   overflow: hidden;
 }
 
@@ -218,11 +225,11 @@ main {
   transform: translateX(-50%);
   padding: 0.3rem 0.8rem;
   border-radius: 999px;
-  background: rgba(15, 118, 110, 0.93);
-  border: 1px solid rgba(34, 197, 167, 0.9);
+  background: rgba(221, 47, 38, 0.92);
+  border: 1px solid rgba(196, 34, 26, 0.95);
   font-size: 0.8rem;
-  color: #ecfeff;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.65);
+  color: #fff7f6;
+  box-shadow: 0 10px 25px rgba(17, 24, 39, 0.2);
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.18s ease;
@@ -253,13 +260,13 @@ main {
   border-radius: 999px;
   background: linear-gradient(
     135deg,
-    rgba(234, 179, 8, 0.95),
-    rgba(249, 250, 229, 0.98)
+    rgba(221, 47, 38, 0.95),
+    rgba(245, 95, 87, 0.98)
   );
-  color: #111827;
+  color: #ffffff;
   font-weight: 600;
   font-size: 0.9rem;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8);
+  box-shadow: 0 20px 50px rgba(17, 24, 39, 0.2);
   text-align: center;
   max-width: min(90%, 400px);
 }

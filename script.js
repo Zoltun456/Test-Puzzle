@@ -31,17 +31,36 @@ const state = {
   boardWidth: 0,
   boardHeight: 0,
   zCounter: 1,
-  previewVisible: false
+  previewVisible: false,
+  physicsRafId: null,
+  physicsLastTs: 0
 };
 
 const SNAP_TOLERANCE_FACTOR = 0.18; // fraction of piece width
 const BOARD_MARGIN_FACTOR = 0.2;    // 20% extra board space
 const CENTER_BOUNDS_PADDING_UNITS = 1;
+const MAX_TILT_DEG = 15;
+const SNAPBACK_MIN_MS = 180;
+const SNAPBACK_MAX_MS = 360;
+const ROT_SPRING_STIFFNESS = 18;
+const ROT_DAMPING = 4.5;
+const ROT_DRAG_ACCEL_X = 0.34;
+const ROT_DRAG_ACCEL_Y = 0.13;
+const ROT_DRAG_DECEL_X = 0.0025;
+const ROT_DRAG_DECEL_Y = 0.001;
+const ROT_ACCEL_MAX = 1200;
+const ROT_ANG_VEL_MAX = 420;
+const ROT_PIVOT_UP_FACTOR = 0.18;
+const RELEASE_SETTLE_MS = 150;
 
 // --- Helpers -----------------------------------------------------------
 
 function isMobile() {
   return window.matchMedia("(max-width: 768px)").matches;
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
 }
 
 function showToast(msg) {
@@ -106,6 +125,38 @@ function getPieceClipPathCenter(pieceEl) {
     x: bbox.x + bbox.width / 2,
     y: bbox.y + bbox.height / 2
   };
+}
+
+function getGroupBaseCenter(group) {
+  let sumX = 0;
+  let sumY = 0;
+  let count = 0;
+  for (const pid of group.pieceIds) {
+    const piece = state.pieces[pid];
+    if (!piece) continue;
+    sumX += piece.baseX;
+    sumY += piece.baseY;
+    count++;
+  }
+  if (!count) return { x: 0, y: 0 };
+  const pieceHeight =
+    state.currentPuzzle && state.currentPuzzle.rows
+      ? state.nativeHeight / state.currentPuzzle.rows
+      : 0;
+  const pivotYOffset = pieceHeight * ROT_PIVOT_UP_FACTOR;
+  return { x: sumX / count, y: sumY / count - pivotYOffset };
+}
+
+function ensureGroupPhysicsState(group) {
+  if (!group) return;
+  if (typeof group.angleDeg !== "number") group.angleDeg = 0;
+  if (typeof group.angularVelDeg !== "number") group.angularVelDeg = 0;
+  if (typeof group.dragAccelDeg !== "number") group.dragAccelDeg = 0;
+  if (typeof group.releaseSettleUntil !== "number") group.releaseSettleUntil = 0;
+  if (typeof group.vx !== "number") group.vx = 0;
+  if (typeof group.vy !== "number") group.vy = 0;
+  if (typeof group.tiltSettling !== "boolean") group.tiltSettling = false;
+  if (!group.snapback) group.snapback = null;
 }
 
 function groupFitsWithinBoard(groupId) {
@@ -282,13 +333,19 @@ function initializePiecesFromSvg() {
 
   const info = pieces.map((g) => {
     const bbox = g.getBBox();
+    const sortCx = bbox.x + bbox.width / 2;
+    const sortCy = bbox.y + bbox.height / 2;
     const clipCenter = getPieceClipPathCenter(g);
-    const cx = clipCenter ? clipCenter.x : bbox.x + bbox.width / 2;
-    const cy = clipCenter ? clipCenter.y : bbox.y + bbox.height / 2;
-    return { g, bbox, cx, cy };
+    const cx = clipCenter ? clipCenter.x : sortCx;
+    const cy = clipCenter ? clipCenter.y : sortCy;
+    return { g, bbox, sortCx, sortCy, cx, cy };
   });
 
-  info.sort((a, b) => (a.cy === b.cy ? a.cx - b.cx : a.cy - b.cy));
+  // Keep logical piece ordering stable for IDs/neighbors/skipIds.
+  // Use bbox center for row/column sort, while base centers can still use clip geometry.
+  info.sort((a, b) =>
+    a.sortCy === b.sortCy ? a.sortCx - b.sortCx : a.sortCy - b.sortCy
+  );
 
   state.pieces = {};
   state.groups = {};
@@ -340,10 +397,15 @@ function initializePiecesFromSvg() {
 function updateGroupTransforms(groupId) {
   const group = state.groups[groupId];
   if (!group) return;
+  ensureGroupPhysicsState(group);
+  const center = getGroupBaseCenter(group);
   for (const pid of group.pieceIds) {
     const piece = state.pieces[pid];
     if (!piece) continue;
-    piece.el.setAttribute("transform", `translate(${group.dx},${group.dy})`);
+    piece.el.setAttribute(
+      "transform",
+      `translate(${group.dx},${group.dy}) rotate(${group.angleDeg} ${center.x} ${center.y})`
+    );
   }
 }
 
@@ -351,6 +413,121 @@ function updateAllGroupTransforms() {
   for (const gid of Object.keys(state.groups)) {
     updateGroupTransforms(gid);
   }
+}
+
+function requestPhysicsTick() {
+  if (state.physicsRafId != null) return;
+  state.physicsRafId = requestAnimationFrame(runPhysicsTick);
+}
+
+function stepGroupRotationPhysics(group, dtSec, inputAccelDeg, springScale = 1, dampingScale = 1) {
+  // Damped rotational spring: input adds torque, spring restores toward 0.
+  const springAccel = -ROT_SPRING_STIFFNESS * springScale * group.angleDeg;
+  const dampingAccel = -ROT_DAMPING * dampingScale * group.angularVelDeg;
+  const totalAccel = inputAccelDeg + springAccel + dampingAccel;
+
+  group.angularVelDeg += totalAccel * dtSec;
+  group.angularVelDeg = clamp(group.angularVelDeg, -ROT_ANG_VEL_MAX, ROT_ANG_VEL_MAX);
+  group.angleDeg += group.angularVelDeg * dtSec;
+  group.angleDeg = clamp(group.angleDeg, -MAX_TILT_DEG, MAX_TILT_DEG);
+}
+
+function runPhysicsTick(ts) {
+  state.physicsRafId = null;
+  if (!state.physicsLastTs) state.physicsLastTs = ts;
+  const dtSec = clamp((ts - state.physicsLastTs) / 1000, 1 / 240, 1 / 30);
+  state.physicsLastTs = ts;
+  let needsAnotherFrame = false;
+  const activeDragGroupId = state.activeDrag?.groupId || null;
+
+  for (const group of Object.values(state.groups)) {
+    ensureGroupPhysicsState(group);
+    let changed = false;
+    let inputAccelDeg = 0;
+
+    if (group.snapback) {
+      const anim = group.snapback;
+      const elapsed = ts - anim.startMs;
+      const t = clamp(elapsed / anim.durationMs, 0, 1);
+      const easeOut = 1 - Math.pow(1 - t, 3);
+
+      const prevDx = group.dx;
+      const prevDy = group.dy;
+      group.dx = anim.fromDx + (anim.toDx - anim.fromDx) * easeOut;
+      group.dy = anim.fromDy + (anim.toDy - anim.fromDy) * easeOut;
+
+      const dtSec = Math.max((ts - (anim.lastTs || ts)) / 1000, 1 / 240);
+      anim.lastTs = ts;
+      group.vx = (group.dx - prevDx) / dtSec;
+      group.vy = (group.dy - prevDy) / dtSec;
+      inputAccelDeg = 0;
+      changed = true;
+
+      if (t >= 1) {
+        group.dx = anim.toDx;
+        group.dy = anim.toDy;
+        group.snapback = null;
+        group.tiltSettling = true;
+        if (typeof anim.onComplete === "function") anim.onComplete();
+      } else {
+        needsAnotherFrame = true;
+      }
+    } else if (activeDragGroupId === group.id) {
+      inputAccelDeg = group.dragAccelDeg;
+      changed = true;
+      needsAnotherFrame = true;
+    } else if (group.tiltSettling || Math.abs(group.angleDeg) > 0.02 || Math.abs(group.angularVelDeg) > 0.05) {
+      inputAccelDeg = 0;
+      changed = true;
+      needsAnotherFrame = true;
+    }
+
+    if (changed) {
+      const releaseBoostActive = group.releaseSettleUntil > ts;
+      const springScale = releaseBoostActive ? 1.25 : 1;
+      const dampingScale = releaseBoostActive ? 1.9 : 1;
+      stepGroupRotationPhysics(group, dtSec, inputAccelDeg, springScale, dampingScale);
+      if (
+        !group.snapback &&
+        activeDragGroupId !== group.id &&
+        Math.abs(group.angleDeg) < 0.02 &&
+        Math.abs(group.angularVelDeg) < 0.05
+      ) {
+        group.angleDeg = 0;
+        group.angularVelDeg = 0;
+        group.tiltSettling = false;
+        group.releaseSettleUntil = 0;
+      }
+      updateGroupTransforms(group.id);
+    }
+  }
+
+  if (needsAnotherFrame) {
+    requestPhysicsTick();
+  } else {
+    state.physicsLastTs = 0;
+  }
+}
+
+function startGroupSnapback(groupId, toDx, toDy, onComplete) {
+  const group = state.groups[groupId];
+  if (!group) return;
+  ensureGroupPhysicsState(group);
+  const distance = Math.hypot(toDx - group.dx, toDy - group.dy);
+  const durationMs = clamp(distance * 0.22, SNAPBACK_MIN_MS, SNAPBACK_MAX_MS);
+  group.snapback = {
+    fromDx: group.dx,
+    fromDy: group.dy,
+    toDx,
+    toDy,
+    startMs: performance.now(),
+    durationMs,
+    lastTs: 0,
+    onComplete
+  };
+  group.dragAccelDeg = 0;
+  group.tiltSettling = true;
+  requestPhysicsTick();
 }
 
 function enforcePieceRenderOrder() {
@@ -507,6 +684,12 @@ function mergeGroups(anchorId, movingId) {
     state.pieces[pid].groupId = anchorId;
   }
   delete state.groups[movingId];
+  ensureGroupPhysicsState(anchor);
+  anchor.snapback = null;
+  anchor.dragAccelDeg = 0;
+  anchor.angularVelDeg = 0;
+  anchor.tiltSettling = true;
+  requestPhysicsTick();
 
   updateGroupTransforms(anchorId);
   enforcePieceRenderOrder();
@@ -582,6 +765,10 @@ function setupDrag(piece) {
 
     const group = state.groups[piece.groupId];
     if (!group) return;
+    ensureGroupPhysicsState(group);
+    group.snapback = null;
+    group.tiltSettling = false;
+    group.dragAccelDeg = 0;
     const pointerSvg = clientToSvgUnits(ev.clientX, ev.clientY);
     if (!pointerSvg) return;
 
@@ -590,7 +777,14 @@ function setupDrag(piece) {
       lastGoodDx: group.dx,
       lastGoodDy: group.dy,
       pointerOffsetX: pointerSvg.x - group.dx,
-      pointerOffsetY: pointerSvg.y - group.dy
+      pointerOffsetY: pointerSvg.y - group.dy,
+      lastClientX: ev.clientX,
+      lastClientY: ev.clientY,
+      lastMoveTs: performance.now(),
+      filteredVxPx: 0,
+      filteredVyPx: 0,
+      prevFilteredVxPx: 0,
+      prevFilteredVyPx: 0
     };
 
     bringGroupToFrontInBand(group.id);
@@ -612,22 +806,67 @@ function setupDrag(piece) {
     const nextDx = pointerSvg.x - drag.pointerOffsetX;
     const nextDy = pointerSvg.y - drag.pointerOffsetY;
 
+    const now = performance.now();
+    const dtSec = Math.max((now - drag.lastMoveTs) / 1000, 1 / 240);
+    const vxPx = (ev.clientX - drag.lastClientX) / dtSec;
+    const vyPx = (ev.clientY - drag.lastClientY) / dtSec;
+    drag.filteredVxPx = drag.filteredVxPx * 0.78 + vxPx * 0.22;
+    drag.filteredVyPx = drag.filteredVyPx * 0.78 + vyPx * 0.22;
+    const accelVxPx = (drag.filteredVxPx - drag.prevFilteredVxPx) / dtSec;
+    const accelVyPx = (drag.filteredVyPx - drag.prevFilteredVyPx) / dtSec;
+
+    ensureGroupPhysicsState(group);
+    group.vx = (nextDx - group.dx) / dtSec;
+    group.vy = (nextDy - group.dy) / dtSec;
+    const speedPx = Math.hypot(drag.filteredVxPx, drag.filteredVyPx);
+    if (speedPx < 8) {
+      group.dragAccelDeg = 0;
+    } else {
+      // User movement provides rotational acceleration (torque-like input).
+      group.dragAccelDeg = clamp(
+        drag.filteredVxPx * ROT_DRAG_ACCEL_X +
+        drag.filteredVyPx * ROT_DRAG_ACCEL_Y +
+        accelVxPx * ROT_DRAG_DECEL_X +
+        accelVyPx * ROT_DRAG_DECEL_Y,
+        -ROT_ACCEL_MAX,
+        ROT_ACCEL_MAX
+      );
+    }
+
     group.dx = nextDx;
     group.dy = nextDy;
 
+    drag.lastClientX = ev.clientX;
+    drag.lastClientY = ev.clientY;
+    drag.lastMoveTs = now;
+    drag.prevFilteredVxPx = drag.filteredVxPx;
+    drag.prevFilteredVyPx = drag.filteredVyPx;
+
     updateGroupTransforms(group.id);
+    requestPhysicsTick();
   }
 
   function pointerUp() {
     const drag = state.activeDrag;
     if (drag) {
       const group = state.groups[drag.groupId];
-      if (group && !groupFitsWithinBoard(group.id)) {
-        group.dx = drag.lastGoodDx;
-        group.dy = drag.lastGoodDy;
-        updateGroupTransforms(group.id);
+      if (group) {
+        ensureGroupPhysicsState(group);
+        group.dragAccelDeg = 0;
+        group.tiltSettling = true;
+        group.releaseSettleUntil = performance.now() + RELEASE_SETTLE_MS;
       }
-      trySnapGroup(drag.groupId);
+      if (group && !groupFitsWithinBoard(group.id)) {
+        startGroupSnapback(group.id, drag.lastGoodDx, drag.lastGoodDy, () => {
+          const currentGroup = state.groups[drag.groupId];
+          if (currentGroup) {
+            trySnapGroup(drag.groupId);
+          }
+        });
+      } else if (group) {
+        requestPhysicsTick();
+        trySnapGroup(drag.groupId);
+      }
     }
     state.activeDrag = null;
     window.removeEventListener("pointermove", pointerMove);
